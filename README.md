@@ -6,8 +6,8 @@ High-performance Express.js and MongoDB backend server for the Garments Order & 
 
 ## 🌐 Live API & Repository Links
 - **Live API Endpoint**: `https://your-server-domain.com` (or `http://localhost:5000`)
-- **Server GitHub Repository**: `https://github.com/your-username/garments-management-server`
-- **Client GitHub Repository**: `https://github.com/your-username/garments-management-clinet`
+- **Server GitHub Repository**: `https://github.com/Mesbah088/garments-management-server`
+- **Client GitHub Repository**: `https://github.com/Mesbah088/garments-management-client`
 
 ---
 
