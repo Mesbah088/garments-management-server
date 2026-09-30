@@ -13,11 +13,11 @@ High-performance Express.js and MongoDB backend server for the Garments Order & 
 
 ## 🔑 System Accounts (Admin & Manager)
 
-| Role | Email | Password | Responsibilities |
-| :--- | :--- | :--- | :--- |
-| **Admin** | `admin@garmentstracker.com` | `Admin@123` | System oversight, role management, suspensions, analytics |
-| **Manager** | `manager@garmentstracker.com` | `Manager@123` | Product catalog publishing, order approvals, milestone tracking |
-| **Buyer** | `buyer@garmentstracker.com` | `Buyer@123` | Booking creation, tracking orders, account profile |
+| Role | Email | Responsibilities |
+| :--- | :--- | :--- |
+| **Admin** | `admin@garmentstracker.com` | System oversight, role management, suspensions, analytics |
+| **Manager** | `manager@garmentstracker.com` | Product catalog publishing, order approvals, milestone tracking |
+| **Buyer** | `buyer@garmentstracker.com` | Booking creation, tracking orders, account profile |
 
 ---
 
