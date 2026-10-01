@@ -16,6 +16,7 @@ const allowedOrigins = [
   'http://localhost:4173',
   'https://garments-tracker-app.web.app',
   'https://garments-management-app.firebaseapp.com',
+  'https://garments-management-client.vercel.app',
   process.env.CLIENT_URL
 ].filter(Boolean);
 
