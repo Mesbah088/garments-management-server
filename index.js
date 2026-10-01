@@ -903,20 +903,55 @@ app.get('/products', async (req, res) => {
     const pageNum = page ? parseInt(page) : null;
     const limitNum = limit ? parseInt(limit) : null;
 
+    const formatProduct = (p) => {
+      if (!p) return null;
+      const rawImg = Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : (p.product_image || p.image || '');
+      return {
+        _id: p._id,
+        title: p.title || p.product_name || p.name || 'Garment Item',
+        description: p.description || p.product_description || '',
+        category: p.category || p.product_category || 'Shirt',
+        price: Number(p.price || p.price_usd || 0),
+        quantity: Number(p.quantity || p.available_quantity || p.availableQty || 0),
+        minOrder: Number(p.minOrder || p.minimum_order || p.minQty || 1),
+        images: Array.isArray(p.images) && p.images.length > 0
+          ? p.images
+          : [rawImg || "https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&w=800&q=80"].filter(Boolean),
+        demoVideo: p.demoVideo || p.demo_video || '',
+        paymentOptions: Array.isArray(p.paymentOptions) && p.paymentOptions.length > 0
+          ? p.paymentOptions
+          : (p.payment_method ? [p.payment_method] : ['Cash on Delivery', 'PayFirst']),
+        showOnHome: p.showOnHome === true || p.show_on_home === 'permit' || p.show_on_home === true,
+        createdBy: p.createdBy || p.createdByName || 'manager@garmentstracker.com',
+        createdAt: p.createdAt || p.date_added || new Date()
+      };
+    };
+
     if (isMongoConnected && productsCollection) {
       const query = {};
       if (search) {
         query.$or = [
           { title: { $regex: search, $options: 'i' } },
+          { product_name: { $regex: search, $options: 'i' } },
+          { name: { $regex: search, $options: 'i' } },
           { description: { $regex: search, $options: 'i' } },
-          { category: { $regex: search, $options: 'i' } }
+          { product_description: { $regex: search, $options: 'i' } },
+          { category: { $regex: search, $options: 'i' } },
+          { product_category: { $regex: search, $options: 'i' } }
         ];
       }
       if (category && category !== 'All') {
-        query.category = { $regex: new RegExp(`^${category}$`, 'i') };
+        query.$or = [
+          { category: { $regex: new RegExp(`^${category}$`, 'i') } },
+          { product_category: { $regex: new RegExp(`^${category}$`, 'i') } }
+        ];
       }
       if (showOnHome === 'true') {
-        query.showOnHome = true;
+        query.$or = [
+          { showOnHome: true },
+          { show_on_home: 'permit' },
+          { show_on_home: true }
+        ];
       }
       if (createdBy) {
         query.createdBy = createdBy;
@@ -936,7 +971,8 @@ app.get('/products', async (req, res) => {
         cursor = cursor.limit(limitNum);
       }
 
-      const products = await cursor.toArray();
+      const rawProducts = await cursor.toArray();
+      const products = rawProducts.map(formatProduct);
 
       if (pageNum && limitNum) {
         return res.send({
@@ -952,29 +988,35 @@ app.get('/products', async (req, res) => {
 
     // In-memory products
     let filtered = memoryProducts.filter(p => {
+      const titleStr = p.title || p.product_name || p.name || '';
+      const descStr = p.description || p.product_description || '';
+      const catStr = p.category || p.product_category || '';
+
       const matchSearch = !search || 
-        p.title?.toLowerCase().includes(search.toLowerCase()) || 
-        p.description?.toLowerCase().includes(search.toLowerCase()) || 
-        p.category?.toLowerCase().includes(search.toLowerCase());
+        titleStr.toLowerCase().includes(search.toLowerCase()) || 
+        descStr.toLowerCase().includes(search.toLowerCase()) || 
+        catStr.toLowerCase().includes(search.toLowerCase());
       
       const matchCategory = !category || category === 'All' || 
-        p.category?.toLowerCase() === category.toLowerCase();
+        catStr.toLowerCase() === category.toLowerCase();
 
-      const matchHome = showOnHome === 'true' ? p.showOnHome === true : true;
+      const isHome = p.showOnHome === true || p.show_on_home === 'permit' || p.show_on_home === true;
+      const matchHome = showOnHome === 'true' ? isHome : true;
       const matchCreator = createdBy ? p.createdBy?.toLowerCase() === createdBy.toLowerCase() : true;
 
       return matchSearch && matchCategory && matchHome && matchCreator;
     });
 
-    if (sort === 'price-asc') filtered.sort((a, b) => a.price - b.price);
-    else if (sort === 'price-desc') filtered.sort((a, b) => b.price - a.price);
-    else filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    if (sort === 'price-asc') filtered.sort((a, b) => (a.price || a.price_usd || 0) - (b.price || b.price_usd || 0));
+    else if (sort === 'price-desc') filtered.sort((a, b) => (b.price || b.price_usd || 0) - (a.price || a.price_usd || 0));
+    else filtered.sort((a, b) => new Date(b.createdAt || b.date_added || 0) - new Date(a.createdAt || a.date_added || 0));
 
     const total = filtered.length;
+    const formattedFiltered = filtered.map(formatProduct);
 
     if (pageNum && limitNum) {
       const startIndex = (pageNum - 1) * limitNum;
-      const products = filtered.slice(startIndex, startIndex + limitNum);
+      const products = formattedFiltered.slice(startIndex, startIndex + limitNum);
       return res.send({
         products,
         total,
@@ -984,10 +1026,10 @@ app.get('/products', async (req, res) => {
     }
 
     if (limitNum) {
-      return res.send(filtered.slice(0, limitNum));
+      return res.send(formattedFiltered.slice(0, limitNum));
     }
 
-    res.send(filtered);
+    res.send(formattedFiltered);
   } catch (err) {
     res.status(500).send({ message: "Failed to fetch products", error: err.message });
   }
