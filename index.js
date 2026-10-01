@@ -14,24 +14,23 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5174',
   'http://localhost:4173',
+  'https://garments-tracker-app.web.app',
+  'https://garments-management-app.firebaseapp.com',
   process.env.CLIENT_URL
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (
-      allowedOrigins.includes(origin) || 
-      origin.endsWith('.vercel.app') ||
-      origin.includes('localhost')
-    ) {
-      return callback(null, true);
-    }
-    // Allow for production access
-    return callback(null, true);
+    // Allow any origin in production/development while supporting credentials
+    callback(null, true);
   },
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -465,73 +464,94 @@ const mongoUri = process.env.MONGODB_URI || (
     : null
 );
 
+let mongoInitPromise = null;
+
 async function initMongoDB() {
+  if (isMongoConnected && db) return db;
   if (!mongoUri) {
     console.log("ℹ️ Running in Memory/Mock Mongo DB mode. Set MONGODB_URI or DB_USER/DB_PASS in .env for Atlas DB.");
     return;
   }
 
-  try {
-    const client = new MongoClient(mongoUri, {
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
+  if (!mongoInitPromise) {
+    mongoInitPromise = (async () => {
+      try {
+        const client = new MongoClient(mongoUri, {
+          serverApi: {
+            version: ServerApiVersion.v1,
+            strict: true,
+            deprecationErrors: true,
+          }
+        });
+        await client.connect();
+        db = client.db(process.env.DB_NAME || "garmentsTrackerDB");
+        usersCollection = db.collection("users");
+        productsCollection = db.collection("products");
+        ordersCollection = db.collection("orders");
+        messagesCollection = db.collection("messages");
+
+        // Seed database if empty
+        const productCount = await productsCollection.countDocuments();
+        if (productCount === 0) {
+          await productsCollection.insertMany(initialProducts.map(p => {
+            const { _id, ...rest } = p;
+            return rest;
+          }));
+          console.log("🌱 Seeded initial products into MongoDB");
+        }
+
+        const userCount = await usersCollection.countDocuments();
+        if (userCount === 0) {
+          await usersCollection.insertMany(initialUsers.map(u => {
+            const { _id, ...rest } = u;
+            return rest;
+          }));
+          console.log("🌱 Seeded initial users into MongoDB");
+        }
+
+        const orderCount = await ordersCollection.countDocuments();
+        if (orderCount === 0) {
+          await ordersCollection.insertMany(initialOrders.map(o => {
+            const { _id, ...rest } = o;
+            return rest;
+          }));
+          console.log("🌱 Seeded initial orders into MongoDB");
+        }
+
+        const messageCount = await messagesCollection.countDocuments();
+        if (messageCount === 0) {
+          await messagesCollection.insertMany(initialMessages.map(m => {
+            const { _id, ...rest } = m;
+            return rest;
+          }));
+          console.log("🌱 Seeded initial chat messages into MongoDB");
+        }
+
+        isMongoConnected = true;
+        console.log("✅ Successfully connected to MongoDB Atlas!");
+      } catch (err) {
+        console.warn("⚠️ MongoDB connection error:", err.message);
+        console.log("⚡ Seamlessly continuing with in-memory datastore so system is 100% operational.");
       }
-    });
-    await client.connect();
-    db = client.db(process.env.DB_NAME || "garmentsTrackerDB");
-    usersCollection = db.collection("users");
-    productsCollection = db.collection("products");
-    ordersCollection = db.collection("orders");
-    messagesCollection = db.collection("messages");
-
-    // Seed database if empty
-    const productCount = await productsCollection.countDocuments();
-    if (productCount === 0) {
-      await productsCollection.insertMany(initialProducts.map(p => {
-        const { _id, ...rest } = p;
-        return rest;
-      }));
-      console.log("🌱 Seeded initial products into MongoDB");
-    }
-
-    const userCount = await usersCollection.countDocuments();
-    if (userCount === 0) {
-      await usersCollection.insertMany(initialUsers.map(u => {
-        const { _id, ...rest } = u;
-        return rest;
-      }));
-      console.log("🌱 Seeded initial users into MongoDB");
-    }
-
-    const orderCount = await ordersCollection.countDocuments();
-    if (orderCount === 0) {
-      await ordersCollection.insertMany(initialOrders.map(o => {
-        const { _id, ...rest } = o;
-        return rest;
-      }));
-      console.log("🌱 Seeded initial orders into MongoDB");
-    }
-
-    const messageCount = await messagesCollection.countDocuments();
-    if (messageCount === 0) {
-      await messagesCollection.insertMany(initialMessages.map(m => {
-        const { _id, ...rest } = m;
-        return rest;
-      }));
-      console.log("🌱 Seeded initial chat messages into MongoDB");
-    }
-
-    isMongoConnected = true;
-    console.log("✅ Successfully connected to MongoDB Atlas!");
-  } catch (err) {
-    console.warn("⚠️ MongoDB connection error:", err.message);
-    console.log("⚡ Seamlessly continuing with in-memory datastore so system is 100% operational.");
+    })();
   }
+
+  await mongoInitPromise;
 }
 
 initMongoDB();
+
+// Cold-start / serverless connection middleware
+app.use(async (req, res, next) => {
+  if (!isMongoConnected && mongoUri) {
+    try {
+      await initMongoDB();
+    } catch (e) {
+      // Handled via memory fallback
+    }
+  }
+  next();
+});
 
 // JWT Middleware
 const verifyToken = (req, res, next) => {
