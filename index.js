@@ -21,7 +21,6 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow any origin in production/development while supporting credentials
     callback(null, true);
   },
   credentials: true,
@@ -31,8 +30,24 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
+
+// Universal CORS Header Middleware
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
 
 // Secret Key for JWT
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'garments_production_tracker_secret_key_2026';
@@ -742,8 +757,19 @@ app.post('/users', async (req, res) => {
     if (!email) return res.status(400).send({ message: 'Email is required' });
 
     const normalizedEmail = email.toLowerCase().trim();
-    let assignedRole = role || (normalizedEmail.includes('admin') ? 'admin' : (normalizedEmail.includes('manager') ? 'manager' : 'buyer'));
-    let assignedStatus = status || 'approved';
+    let assignedRole = role || 'buyer';
+    let assignedStatus = 'approved';
+
+    if (normalizedEmail === 'admin@garmentstracker.com') {
+      assignedRole = 'admin';
+      assignedStatus = 'approved';
+    } else if (assignedRole === 'manager') {
+      // New managers require admin approval; default seed manager is pre-approved
+      assignedStatus = (normalizedEmail === 'manager@garmentstracker.com') ? 'approved' : (status || 'pending');
+    } else {
+      assignedRole = 'buyer';
+      assignedStatus = 'approved';
+    }
 
     if (isMongoConnected && usersCollection) {
       const existing = await usersCollection.findOne({
@@ -807,7 +833,7 @@ app.patch('/users/:id/status', async (req, res) => {
       updateDoc.suspendedAt = null;
     }
 
-    if (isMongoConnected) {
+    if (isMongoConnected && usersCollection) {
       let query;
       try {
         query = { _id: new ObjectId(id) };
@@ -839,7 +865,7 @@ app.patch('/users/:id/status', async (req, res) => {
 app.delete('/users/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    if (isMongoConnected) {
+    if (isMongoConnected && usersCollection) {
       let query;
       try {
         query = { _id: new ObjectId(id) };
@@ -877,7 +903,7 @@ app.get('/products', async (req, res) => {
     const pageNum = page ? parseInt(page) : null;
     const limitNum = limit ? parseInt(limit) : null;
 
-    if (isMongoConnected) {
+    if (isMongoConnected && productsCollection) {
       const query = {};
       if (search) {
         query.$or = [
@@ -971,7 +997,7 @@ app.get('/products', async (req, res) => {
 app.get('/products/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    if (isMongoConnected) {
+    if (isMongoConnected && productsCollection) {
       let query;
       try {
         query = { _id: new ObjectId(id) };
@@ -1012,16 +1038,28 @@ app.post('/products', async (req, res) => {
       return res.status(400).send({ message: "All required fields must be filled" });
     }
 
-    // Check creator status if manager is suspended
+    // Check creator status if manager is pending or suspended
     if (createdBy) {
       let userRecord = null;
-      if (isMongoConnected) {
-        userRecord = await usersCollection.findOne({ email: createdBy });
+      if (isMongoConnected && usersCollection) {
+        userRecord = await usersCollection.findOne({
+          email: { $regex: new RegExp(`^${createdBy.toLowerCase().trim()}$`, 'i') }
+        });
       } else {
-        userRecord = memoryUsers.find(u => u.email.toLowerCase() === createdBy.toLowerCase());
+        userRecord = memoryUsers.find(u => u.email?.toLowerCase() === createdBy.toLowerCase().trim());
       }
-      if (userRecord && userRecord.status === 'suspended') {
-        return res.status(403).send({ message: "Suspended managers cannot add new products." });
+      
+      if (userRecord && userRecord.role === 'manager') {
+        if (userRecord.status === 'pending') {
+          return res.status(403).send({ 
+            message: "Your Manager account is awaiting Admin Approval. You cannot publish products until approved by the Admin." 
+          });
+        }
+        if (userRecord.status === 'suspended') {
+          return res.status(403).send({ 
+            message: "Your Manager account is suspended. You cannot publish products." 
+          });
+        }
       }
     }
 
@@ -1042,7 +1080,7 @@ app.post('/products', async (req, res) => {
       createdAt: new Date()
     };
 
-    if (isMongoConnected) {
+    if (isMongoConnected && productsCollection) {
       const result = await productsCollection.insertOne(newProduct);
       return res.send({ success: true, message: "Product created successfully", insertedId: result.insertedId, product: newProduct });
     }
